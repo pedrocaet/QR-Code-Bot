@@ -1,0 +1,130 @@
+#Token Bot
+Token = 'cole seu BotToken aqui, ele é disponibilizado pelo BotFather.'
+
+#Criando Router
+form_router = Router()
+#Definindo Estados do Bot
+class Form(StatesGroup):
+  pergunta_gerar_qr_code = State()
+  quer_qr_code = State()
+
+#Função para gerar o QrCode
+def gerarQrCode(texto):
+  qr = qrcode.make(texto)
+  temp = BytesIO()
+  #Salva o qr code em um arquivo temporário
+  qr.save(temp)
+  temp.seek(0)
+  #Cria um arquivo para enviar
+  file_to_send = BufferedInputFile(temp.getvalue(), "qrcode.png")
+  return file_to_send
+
+#Comando de Início
+@form_router.message(CommandStart() )
+async def comand_start(message: Message, state: FSMContext) -> None:
+  await state.clear()
+  #Define o próximo estado do Bot
+  await state.set_state(Form.pergunta_gerar_qr_code)
+  #Mensagem de Início
+  await message.answer(
+      "Olá tudo bem, sou o um bot muito legal e faço QR Codes. 😄\n"
+            + "\nGostaria de gerar um QR Code para acessar um site? /Sim ou /Nao",
+      #Cria um teclado com as opções de sim e não
+      reply_markup = ReplyKeyboardMarkup(
+          keyboard = [
+              [KeyboardButton(text="/Sim"), KeyboardButton(text="/Não")]
+            ],
+            resize_keyboard=True,
+      )
+  )
+#Mensagem caso o usuário não queira gerar um QrCode
+@form_router.message(Form.pergunta_gerar_qr_code, F.text.casefold() == ("/nao" or "/não"))
+async def process_dont_want_qr_code(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.clear()
+    # Mensagem de agradecimento
+    await message.answer(
+        "Ok, você não quer criar um QR Code.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    # Mostra o resumo
+    await show_summary(message=message, data=data, positive=False)
+
+
+#Mensagem caso o usuário queira gerar um QrCode
+@form_router.message(Form.pergunta_gerar_qr_code, F.text.casefold() == "/sim")
+async def process_want_qr_code(message: Message, state: FSMContext) -> None:
+    # Define o proximo estado do bot
+    await state.set_state(Form.quer_qr_code)
+
+    # Pergunta o que o usuário deseja fazer e espera a resposta
+    await message.reply(
+        "Digite o link ou texto que deseja transformar em QR Code.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+#Mensagem caso o usuário digite uma opção inválida
+@form_router.message(Form.pergunta_gerar_qr_code)
+async def process_unknown_options(message: Message) -> None:
+    await message.reply("Escolha uma opção válida.")
+
+#Mensagem caso o usuário digite um texto ou link válido
+@form_router.message(Form.quer_qr_code, F.text.casefold() != ("/pronto" or "pronto"))
+async def process_quer_qr_code(message: Message, state: FSMContext) -> None:
+
+    # Pega os dados do estado atual
+    data = await state.get_data()
+    # Pega o número de qr codes gerados
+    qr_code_numbers = int(data.get("qr_code_numbers", 0))
+
+    # Verifica se o texto é válido
+    if message.text is not None:
+        # Gera o qr code
+        qr_code = gerarQrCode(message.text)
+        await message.reply("Aqui está o seu QR Code:", reply_markup=ReplyKeyboardRemove())
+        # Assuming `qr_code` is the QR code image data
+
+        # Envia o qr code
+        await message.answer_photo(qr_code, caption="Seu QR Code")
+        await state.update_data(qr_code_numbers=(qr_code_numbers + 1))
+
+        # Pergunta se o usuário deseja criar outro qr code
+        await message.reply("Se você deseja criar outro QR Code, digite o link ou texto que deseja transformar em QR Code ou digite /pronto se desejar parar.")
+    else:
+        await message.reply("Digite um texto ou link válido.")
+
+@form_router.message(Form.quer_qr_code, F.text.casefold() == ("/pronto"))
+async def process_end_qr_code(message: Message, state: FSMContext) -> None:
+    # Pega os dados do estado atual
+    data = await state.get_data()
+
+    # Mostra o resumo
+    await state.clear()
+    await message.reply("Ok, você não quer criar um QR Code.", reply_markup=ReplyKeyboardRemove())
+    await show_summary(message=message, data=data, positive=True)
+
+#Função para mostrar o resumo
+async def show_summary(message: Message, data: Dict[str, Any], positive: bool = True) -> None:
+    # Mensagem de resumo
+    text = f"O numero de QR Codes Gerados foi: {data['qr_code_numbers']}" if 'qr_code_numbers' in data else ""
+    # Mensagem de agradecimento
+    if positive:
+        text += "\nMuito obrigado por criar QR Codes conosco! Volte sempre!"
+        await message.answer(text=text, reply_markup=ReplyKeyboardRemove())
+    else:
+        text += "\nQue pena que você não quis criar QR Codes conosco! Volte sempre!"
+        await message.answer(text=text, reply_markup=ReplyKeyboardRemove())
+#Função principal
+async def main():
+    # Cria o bot
+    bot = Bot(token=Token, parse_mode=ParseMode.HTML)
+    # Cria o dispatcher
+    dp = Dispatcher()
+    # Adiciona o router ao dispatcher
+    dp.include_router(form_router)
+    # Inicia o bot
+    await dp.start_polling(bot)
+
+#Executa a função principal
+await main()
